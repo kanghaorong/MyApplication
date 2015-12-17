@@ -30,6 +30,8 @@ public class MainActivity extends AppCompatActivity {
         });
     }
 
+
+
     public void test(){
         CommonGetClient<Object> client = new CommonGetClient<Object>("",Object.class,this);
     }
