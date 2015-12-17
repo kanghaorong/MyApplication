@@ -1,0 +1,15 @@
+package com.qike.corelibrary.net.domain;
+
+import com.qike.corelibrary.utils.SDCardUtils;
+
+/**
+ * 
+ *<p>网络请求的常量</p><br/>
+ * @since 1.0.0
+ * @author xky
+ */
+public class NetConstants {
+	/**请求类型*/
+	public static final int HTTPGET = 0;
+	public static final int HTTPPOST = 1;
+}

@@ -1,0 +1,320 @@
+package com.qike.corelibrary.net;
+
+import java.io.UnsupportedEncodingException;
+import java.net.URLEncoder;
+import java.security.NoSuchAlgorithmException;
+import java.util.HashMap;
+import java.util.Map;
+
+import android.content.Context;
+import android.os.Handler;
+import android.text.TextUtils;
+import android.util.Log;
+
+import com.google.gson.Gson;
+import com.loopj.android.http.AsyncHttpClient;
+import com.loopj.android.http.AsyncHttpResponseHandler;
+import com.loopj.android.http.RequestParams;
+import com.qike.corelibrary.net.domain.NetConstants;
+import com.qike.corelibrary.net.domain.RequestEntry;
+import com.qike.corelibrary.serurity.SecurityUtils;
+import com.qike.corelibrary.store.impl.JsonStore;
+/**
+ * 
+ *<p>请求客户端</p><br/>
+ *<p>TODO (类的详细的功能描述)</p>
+ * @since 1.0.0
+ * @author xky
+ * @param <T>
+ */
+public abstract class AClient<T> {
+	private AsyncHttpClient mClient;
+	private String mURL;
+	RequestParams mRParams ;
+	private RequestEntry mRequestEntry;
+	private Class<T> mClazz;
+	public Context mContext;
+	
+	public AClient(String url,Class<T> clazz,Context context) {
+		mClient = new AsyncHttpClient();
+		this.mContext = context;
+		this.mURL = url;
+		mParams = new HashMap<String, String>();
+		mPostParams = new HashMap<String, Object>();
+		this.mClazz = clazz;
+		this.mRequestEntry = getCacheEntry();
+		mJsonStore = new JsonStore(mRequestEntry.getJsonBasePath(), mRequestEntry.getSec());
+		mHandler = new Handler();
+	}
+	/**
+	 * 
+	 *<p>发出请求</p><br/>
+	 *<p>TODO(详细描述)</p>
+	 * @since 1.0.0
+	 * @author xky
+	 */
+	public void asyncDoApi(){
+		int method = getRequetMethod();
+		if(mRParams != null){
+			mRParams = null;
+		}
+		//设置token
+//		putParams("token", "8c7bedc91ca7cf063816d2db98f78030");
+		if( mParams.get("pagesize")!= null){
+			putParams("token", getMd5Token());
+		}
+//		HttpEntity entity = params.getEntity();
+		switch (method) {
+		case NetConstants.HTTPGET:
+			String urlAndParams = getUrlAndParams();
+//			mClient.get(mURL, mRParams , mResponseHandler);
+			mClient.get(urlAndParams, mResponseHandler);
+			break;
+		case NetConstants.HTTPPOST:
+			String urlPostAndParams = getUrlAndParams();
+			mRParams = new RequestParams(mPostParams);
+			mClient.post(urlPostAndParams, mRParams, mResponseHandler);
+			break;
+
+		default:
+			break;
+		}
+	}
+	/**
+	 * 
+	 *<p>存放追加到url后面的请求参数</p><br/>
+	 * @since 1.0.0
+	 * @author xky
+	 * @param key
+	 * @param value
+	 */
+	public void putParams(String key,Object value){
+		mParams.put(key, String.valueOf(value));
+	}
+	/**
+	 * 
+	 *<p>存放以RequestParams中追加的参数</p><br/>
+	 *<p>普通到文件上传 保密到参数</p>
+	 * @since 1.0.0
+	 * @author xky
+	 * @param key
+	 * @param obj
+	 */
+	public void putPostParams(String key,Object obj){
+		mPostParams.put(key, obj);
+	}
+	
+	private String getMd5Token(){
+		String pagenum = mParams.get("pagenum");
+		String pagesize = mParams.get("pagesize");
+		String md5 = "";
+		try {
+			md5 = SecurityUtils.md5("HTML5GAME"+SecurityUtils.md5(pagenum+""+pagesize));
+		} catch (NoSuchAlgorithmException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
+		return md5;
+	}
+	
+	
+	public RequestEntry getmRequestEntry() {
+		return mRequestEntry;
+	}
+	public void setmRequestEntry(RequestEntry mRequestEntry) {
+		this.mRequestEntry = mRequestEntry;
+	}	
+	/**
+	 * 
+	 *<p>获取请求参数</p><br/>
+	 *<p>TODO(详细描述)</p>
+	 * @since 1.0.0
+	 * @author xky
+	 * @return
+	 */
+	public  Map<String,String> getParams(){
+		return mParams;
+	}
+	
+	
+	/**
+	 * 
+	 *<p>获取url和参数拼装好的字符串</p><br/>
+	 *<p>TODO(详细描述)</p>
+	 * @since 1.0.0
+	 * @author xky
+	 * @return
+	 */
+	public String getUrlAndParams(){
+		//www.baidu.com/s?name=kk&page=1&id=123
+		return mURL+map2Params(mParams);
+	}
+	
+	public String map2Params(HashMap<String,String> map){
+		StringBuffer sbuf = new StringBuffer();
+		if(map == null){
+			return null;
+		}
+		sbuf.append("?");
+		for (Map.Entry<String, String> entry : map.entrySet()) {
+			String key = entry.getKey();
+			String value = String.valueOf(entry.getValue());
+			sbuf.append(key+"="+value+"&");
+		}
+		sbuf.deleteCharAt(sbuf.length()-1);
+		return sbuf.toString();
+	}
+	private AsyncHttpResponseHandler mResponseHandler = new AsyncHttpResponseHandler(){
+		@Override
+		public void onStart() {
+			onStart_();
+		};
+		public void onSuccess(int code, String resBody) {
+			Gson gson = new Gson();
+			T result = null;
+			if(!TextUtils.isEmpty(resBody)){
+				try{
+//				T result = JSON.parseObject(resBody, mClazz);
+					result = gson.fromJson(resBody, mClazz);
+					onSuccess_(code);
+					onFinish_(true, false, result);
+				}catch(Exception e){
+					e.printStackTrace();
+				}
+			}
+			if(mRequestEntry != null){
+				if(mRequestEntry.isDecode()){
+					//需要对数据进行解密
+				}
+				if(mRequestEntry.isCache() && !TextUtils.isEmpty(resBody)){
+					//需要缓存数据[最好开启子线程]
+					if(result != null){
+						save(result);
+					}
+				}
+			}
+		}
+		public void onFailure(Throwable e, String body) {
+			if(mRequestEntry != null){
+				if(mRequestEntry.isCache()){
+					//从缓存中拿数据
+//					T result = mJsonStore.load(mClazz, getCacheFileName());
+//					onFinish_(false, true, result);
+					load();
+				}
+			}
+		};
+		public void onFinish() {
+			Log.e("","");
+		};
+	};
+	private String getCacheFileName() {
+		String fileName = "jsoncache";
+		try {
+			fileName = URLEncoder.encode(getUrlAndParams(), "UTF-8");
+		} catch (UnsupportedEncodingException e) {
+			e.printStackTrace();
+		}
+		return fileName;
+	};
+	private HashMap<String, String> mParams;
+	private HashMap<String, Object> mPostParams;
+	private IBaseCallBack<T> mCallback;
+	private JsonStore mJsonStore;
+	private Handler mHandler;
+	
+	public void registBaseCallBack(IBaseCallBack<T> callback){
+		this.mCallback = callback;
+	}
+	
+	public void onStart_(){
+		if(mCallback != null){
+			mCallback.onStart();
+		}
+	}
+	
+	public void onFinish_(boolean isSuccess,boolean isCache,T result){
+		if(mCallback != null){
+			mCallback.onFinish(isSuccess ,isCache, result);
+		}
+	}
+	
+	public void onSuccess_(int code){
+		if(mCallback != null){
+			mCallback.onSuccess(code);
+		}
+	}
+	public void onFailed_(int code){
+		if(mCallback != null){
+			mCallback.onFailed(code);
+		}
+	}
+	/**
+	 * 
+	 *<p>开启子线程来存储【判断是否已经存在，在判断是否过期】</p><br/>
+	 * @since 1.0.0
+	 * @author xky
+	 */
+	public void save(final T result){
+		new Thread(){
+			public void run() {
+				String fileName = getCacheFileName();
+				mJsonStore.save(result, fileName);
+			};
+		}.start();
+	}
+	
+	/**
+	 * 
+	 *<p>开启子线程来加载数据</p><br/>
+	 * @since 1.0.0
+	 * @author xky
+	 */
+	private void load(){
+		new Thread(){
+			public void run() {
+				final T result = mJsonStore.load(mClazz, getCacheFileName());
+				mHandler.post(new Runnable() {
+					
+					@Override
+					public void run() {
+						onFinish_(false, true, result);//在主线程更新
+					}
+				});
+			};
+		}.start();
+	}
+	/**
+	 * 
+	 *<p>清缓存</p><br/>
+	 * @since 1.0.0
+	 * @author xky
+	 */
+	public void clearCache_(){
+		new Thread(){
+			public void run() {
+				mJsonStore.deleteAll();
+			};
+		}.start();
+	}
+	
+	
+	
+	/**
+	 * 
+	 *<p>TODO获取请求方式</p><br/>
+	 * @since 1.0.0
+	 * @author xky
+	 * @return
+	 */
+	public abstract int getRequetMethod();
+	/**
+	 * 
+	 *<p>获取缓存实体</p><br/>
+	 *<p>TODO(详细描述)</p>
+	 * @since 1.0.0
+	 * @author xky
+	 * @return
+	 */
+	public abstract RequestEntry getCacheEntry() ;
+}
